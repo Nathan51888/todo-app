@@ -1,0 +1,51 @@
+logging {
+  level  = "info"
+  format = "json"
+}
+
+otelcol.receiver.otlp "default" {
+    http {}
+    grpc {}
+
+    output {
+        logs = [otelcol.processor.batch.default.input]
+    }
+}
+
+otelcol.processor.batch "default" {
+    output {
+        logs = [otelcol.exporter.otlphttp.default.input]
+    }
+}
+
+otelcol.exporter.otlphttp "default" {
+    client {
+        endpoint = "http://loki:3100/otlp"
+    }
+}
+
+prometheus.exporter.self "alloy" {}
+
+prometheus.scrape "self" {
+  targets    = prometheus.exporter.self.alloy.targets
+  forward_to = [prometheus.remote_write.prometheus.receiver]
+}
+
+prometheus.scrape "backend" {
+  targets = [{
+    __address__ = "backend:8080",
+  }]
+
+  forward_to = [prometheus.remote_write.prometheus.receiver]
+}
+
+prometheus.remote_write "prometheus" {
+    endpoint {
+        url = "http://prometheus:9090/api/v1/write"
+
+        // basic_auth {
+        //   username = "admin"
+        //   password = "admin"
+        // }
+    }
+}

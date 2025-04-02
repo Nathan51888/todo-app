@@ -1,0 +1,104 @@
+services:
+  backend:
+    container_name: backend-c
+    environment:
+      - POSTGRES_HOST=database-c
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=test
+      - POSTGRES_DB=todoapp
+    build:
+      context: todo-app-backend
+      dockerfile: Dockerfile
+      args:
+        bin_to_build: httpserver
+    ports:
+      - 8080:8080
+    networks:
+      - web
+      - metrics
+    depends_on:
+      database:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./todo-app-backend/
+          target: ./todo-app-backend/
+
+  database:
+    container_name: database-c
+    environment:
+      - POSTGRES_HOST=database-c
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=test
+      - POSTGRES_DB=todoapp
+    image: postgres:17
+    volumes:
+      - ./testing/testdata/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - web
+    healthcheck:
+      test: pg_isready -U postgres -d todoapp
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  grafana-alloy:
+    container_name: grafana-alloy
+    networks:
+      - metrics
+    restart: unless-stopped
+    build:
+      dockerfile: Dockerfile
+      context: grafana-alloy
+    ports:
+      - "12345:12345"
+    links:
+      - backend
+      - prometheus
+    depends_on:
+      - loki
+
+  loki:
+    image: grafana/loki:latest
+    networks:
+      - metrics
+    ports:
+      - 3100:3100
+    volumes:
+      - ./loki-config.yaml:/etc/loki/loki-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus-c
+    networks:
+      - metrics
+    ports:
+      - "9090:9090"
+    command:
+      - --web.enable-remote-write-receiver
+      - --config.file=/etc/prometheus/prometheus.yml
+    volumes:
+      - "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana-c
+    networks:
+      - metrics
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - grafana-alloy
+    attach: false
+
+networks:
+  metrics:
+    driver: bridge
+  web:
+    driver: bridge
